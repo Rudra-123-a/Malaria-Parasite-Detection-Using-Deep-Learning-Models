@@ -1,0 +1,303 @@
+from google.colab import drive
+# Mount Google Drive to access dataset
+drive.mount('/content/drive')
+
+import os
+# List files in the dataset directory
+os.listdir('/content/drive/MyDrive/malaria_dataset/cell_images')
+
+import tensorflow as tf
+import os
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+
+# Define dataset path
+dataset_path = '/content/drive/MyDrive/malaria_dataset/cell_images'  # Update this path, pointing to the parent folder of Parasitized and Uninfected
+
+# Check if the dataset path exists
+if not os.path.exists(dataset_path):
+  print(f"Error: Dataset path '{dataset_path}' does not exist. Please update the path.")
+else:
+  print(f"Dataset path found: {dataset_path}")
+
+# Define data augmentation and preprocessing parameters
+image_size = (150, 150)  # Example image size
+batch_size = 32
+
+# Create ImageDataGenerator for training data with data augmentation
+train_datagen = ImageDataGenerator(
+    rescale=1./255,  # Normalize pixel values to [0, 1]
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    validation_split=0.2  # Split into train and validation (80% train, 20% validation)
+)
+
+# Create ImageDataGenerator for validation data (only rescaling)
+validation_datagen = ImageDataGenerator(
+    rescale=1./255,
+    validation_split=0.2
+)
+
+# Load training data from the directory
+train_generator = train_datagen.flow_from_directory(
+    dataset_path,
+    target_size=image_size,
+    batch_size=batch_size,
+    class_mode='binary',  # Assuming binary classification (e.g., Parasitized/Uninfected)
+    subset='training', # Specify that this is the training set
+    shuffle=True, # Shuffle the training set
+    seed=42 # For reproducibility
+)
+
+# Load validation data from the directory
+validation_generator = validation_datagen.flow_from_directory(
+    dataset_path,
+    target_size=image_size,
+    batch_size=batch_size,
+    class_mode='binary',
+    subset='validation', # Specify that this is the validation set
+    shuffle=False, # No need to shuffle validation set
+    seed=42 # For reproducibility
+)
+
+# Print class indices for reference
+print("Class indices:", train_generator.class_indices)
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Function to plot images
+def plot_images(generator, num_images=9):
+    """Plots a batch of images from the given generator."""
+    images, labels = next(generator)
+    fig, axes = plt.subplots(3, 3, figsize=(10, 10))
+    axes = axes.flatten()
+    for img, label, ax in zip(images, labels, axes):
+        ax.imshow(img)
+        ax.set_title(f"Label: {label}")
+        ax.axis('off')
+    plt.tight_layout()
+    plt.show()
+
+# Plot images from the training generator
+print("Training Images:")
+plot_images(train_generator)
+
+# Plot images from the validation generator
+print("Validation Images:")
+plot_images(validation_generator)
+
+# Get the number of images in the training set
+num_train_images = train_generator.samples
+print(f"Number of training images: {num_train_images}")
+
+# Get the number of images in the validation set
+num_validation_images = validation_generator.samples
+print(f"Number of validation images: {num_validation_images}")
+
+# Calculate total number of images
+total_images = num_train_images + num_validation_images
+print(f"Total number of images: {total_images}")
+
+
+#Verify image counts by directly counting files in directories
+import os
+
+parasitized_dir = os.path.join(dataset_path, 'Parasitized')
+uninfected_dir = os.path.join(dataset_path, 'Uninfected')
+
+parasitized_count = len(os.listdir(parasitized_dir))
+uninfected_count = len(os.listdir(uninfected_dir))
+
+print(f"\nDirect count of Parasitized images: {parasitized_count}")
+print(f"Direct count of Uninfected images: {uninfected_count}")
+
+total_direct_count = parasitized_count + uninfected_count
+print(f"Total images (direct count): {total_direct_count}")
+
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import confusion_matrix, classification_report
+import seaborn as sns
+
+# Define the CNN model
+model = Sequential([
+    Conv2D(32, (3, 3), activation='relu', input_shape=(image_size[0], image_size[1], 3)),
+    MaxPooling2D((2, 2)),
+    Conv2D(64, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+    Conv2D(128, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dropout(0.5),
+    Dense(1, activation='sigmoid')  # Binary classification (Parasitized/Uninfected)
+])
+
+
+# Print model summary
+model.summary()
+# Compile the model with learning rate 0.001
+model.compile(optimizer=Adam(learning_rate=0.001), loss='binary_crossentropy', metrics=['accuracy'])
+# Train the model
+epochs = 10
+history = model.fit(
+    train_generator,
+    epochs=epochs,
+    validation_data=validation_generator
+)
+# Print final training and validation accuracy
+final_train_accuracy = history.history['accuracy'][-1]
+final_val_accuracy = history.history['val_accuracy'][-1]
+
+print(f"Final Training Accuracy: {final_train_accuracy * 100:.2f}%")
+print(f"Final Validation Accuracy: {final_val_accuracy * 100:.2f}%")
+
+
+# Plotting training and validation accuracy
+plt.figure(figsize=(12, 4))
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'], label='Training Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.legend()
+plt.title('Training and Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+
+# Plotting training and validation loss
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.legend()
+plt.title('Training and Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+
+plt.tight_layout()
+plt.show()
+
+#Confusion Matrix
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+
+y_pred = model.predict(validation_generator)
+y_pred = (y_pred > 0.5).astype(int) # Convert probabilities to class labels
+y_true = validation_generator.classes
+
+cm = confusion_matrix(y_true, y_pred)
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=['Predicted Uninfected', 'Predicted Parasitized'],
+            yticklabels=['Actual Uninfected', 'Actual Parasitized'])
+plt.title('Confusion Matrix')
+plt.xlabel('Predicted Labels')
+plt.ylabel('True Labels')
+plt.show()
+
+# Classification Report
+print(classification_report(y_true, y_pred, target_names=['Uninfected', 'Parasitized']))
+
+# Evaluate the model
+loss, accuracy = model.evaluate(validation_generator)
+print(f"Validation Loss: {loss:.4f}")
+print(f"Validation Accuracy: {accuracy:.4f}")
+
+# Save the model
+model.save('malaria_model.h5')
+
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import confusion_matrix, classification_report
+import seaborn as sns
+
+# Define the CNN model
+model = Sequential([
+    Conv2D(32, (3, 3), activation='relu', input_shape=(image_size[0], image_size[1], 3)),
+    MaxPooling2D((2, 2)),
+    Conv2D(64, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+    Conv2D(128, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dropout(0.5),
+    Dense(1, activation='sigmoid')  # Binary classification (Parasitized/Uninfected)
+])
+
+
+# Print model summary
+model.summary()
+# Compile the model with learning rate 0.00001
+model.compile(optimizer=Adam(learning_rate=0.00001), loss='binary_crossentropy', metrics=['accuracy'])
+# Train the model
+epochs = 10
+history = model.fit(
+    train_generator,
+    epochs=epochs,
+    validation_data=validation_generator
+)
+# Print final training and validation accuracy
+final_train_accuracy = history.history['accuracy'][-1]
+final_val_accuracy = history.history['val_accuracy'][-1]
+
+print(f"Final Training Accuracy: {final_train_accuracy * 100:.2f}%")
+print(f"Final Validation Accuracy: {final_val_accuracy * 100:.2f}%")
+
+
+# Plotting training and validation accuracy
+plt.figure(figsize=(12, 4))
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'], label='Training Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.legend()
+plt.title('Training and Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+
+# Plotting training and validation loss
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.legend()
+plt.title('Training and Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+
+plt.tight_layout()
+plt.show()
+
+#Confusion Matrix
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+
+y_pred = model.predict(validation_generator)
+y_pred = (y_pred > 0.5).astype(int) # Convert probabilities to class labels
+y_true = validation_generator.classes
+
+cm = confusion_matrix(y_true, y_pred)
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=['Predicted Uninfected', 'Predicted Parasitized'],
+            yticklabels=['Actual Uninfected', 'Actual Parasitized'])
+plt.title('Confusion Matrix')
+plt.xlabel('Predicted Labels')
+plt.ylabel('True Labels')
+plt.show()
+
+# Classification Report
+print(classification_report(y_true, y_pred, target_names=['Uninfected', 'Parasitized']))
+
+# Evaluate the model
+loss, accuracy = model.evaluate(validation_generator)
+print(f"Validation Loss: {loss:.4f}")
+print(f"Validation Accuracy: {accuracy:.4f}")
+
+# Save the model
+model.save('malaria_model1.h5')
