@@ -1,1 +1,0 @@
-# Malaria-Parasite-Detection-Using-Deep-Learning-Models
